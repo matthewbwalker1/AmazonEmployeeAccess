@@ -6,6 +6,7 @@ rm(list = ls())
 library(tidyverse)
 library(tidymodels)
 library(embed)
+library(lme4)
 library(vroom)
 # library(patchwork)
 # library(janitor)
@@ -23,13 +24,13 @@ amazon_cleanup_recipe <- recipe(ACTION ~ .,
   step_mutate_at(all_numeric_predictors(), fn = factor) %>%
   step_other(all_factor_predictors(), threshold = 0.001) %>%
   step_lencode_mixed(all_factor_predictors(), outcome = vars(ACTION)) %>%
-  step_normalize(all_numeric_predictors)
+  step_normalize(all_numeric_predictors())
 
-# This code is used to ensure that the above recipe worked as intended.
-amazon_train_clean <- bake(prep(amazon_cleanup_recipe),
-     new_data = amazon_train)
-# summary(amazon_train_clean)
-View(amazon_train_clean)
+# # This code is used to ensure that the above recipe worked as intended.
+# amazon_train_clean <- bake(prep(amazon_cleanup_recipe),
+#      new_data = amazon_train)
+# # summary(amazon_train_clean)
+# View(amazon_train_clean)
 
 # # EDA -------------------------------------------------------------------
 # 
@@ -83,18 +84,30 @@ amazon_preliminary_workflow <- workflow() %>%
 
 # Cross-validation ------------------------------------------------------
 # grid of tuning parameters
-tuning_grid <- grid_regular(penalty,
-                            mixture,
+tuning_grid <- grid_regular(penalty(),
+                            mixture(),
                             levels = 3)
 
-# grid 
+# splitting data into folds
 folds <- vfold_cv(amazon_train,
                   v = 3,
                   repeats = 1)
 
+# cross-validation
+cv_results <- amazon_preliminary_workflow %>%
+  tune_grid(resamples = folds,
+            grid = tuning_grid,
+            metrics = metric_set(roc_auc))
+
+# pulling off best tuning parameter values
+best_tuning_parameters <- cv_results %>%
+  select_best(metric = "roc_auc")
+
 # Making final workflow -------------------------------------------------
 # making final workflow
-
+amazon_workflow <- amazon_preliminary_workflow %>%
+  finalize_workflow(best_tuning_parameters) %>%
+  fit(data = amazon_train)
 
 # Making Predictions ----------------------------------------------------
 amazon_predictions <- predict(amazon_workflow,
