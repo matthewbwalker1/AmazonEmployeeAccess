@@ -5,6 +5,7 @@ rm(list = ls())
 # loading in libraries
 library(tidyverse)
 library(tidymodels)
+library(embed)
 library(vroom)
 # library(patchwork)
 # library(janitor)
@@ -21,13 +22,14 @@ amazon_cleanup_recipe <- recipe(ACTION ~ .,
                                 data = amazon_train) %>%
   step_mutate_at(all_numeric_predictors(), fn = factor) %>%
   step_other(all_factor_predictors(), threshold = 0.001) %>%
-  step_dummy(all_factor_predictors())
+  step_lencode_mixed(all_factor_predictors(), outcome = vars(ACTION)) %>%
+  step_normalize(all_numeric_predictors)
 
-# # This code is used to ensure that the above recipe worked as intended.
-# amazon_train_clean <- bake(prep(amazon_cleanup_recipe),
-#      new_data = amazon_train)
-# # summary(amazon_train_clean)
-# View(amazon_train_clean)
+# This code is used to ensure that the above recipe worked as intended.
+amazon_train_clean <- bake(prep(amazon_cleanup_recipe),
+     new_data = amazon_train)
+# summary(amazon_train_clean)
+View(amazon_train_clean)
 
 # # EDA -------------------------------------------------------------------
 # 
@@ -60,18 +62,39 @@ amazon_cleanup_recipe <- recipe(ACTION ~ .,
 #        y = "Feature")
 
 
-# Logistic Regression Model ---------------------------------------------
-# setting model
-amazon_logistic_regression_model <- logistic_reg() %>%
-  set_engine("glm")
+# # Logistic Regression Model ---------------------------------------------
+# # setting model
+# amazon_logistic_regression_model <- logistic_reg() %>%
+#   set_engine("glm")
+# 
+# amazon_workflow <- workflow() %>%
+#   add_recipe(amazon_cleanup_recipe) %>%
+#   add_model(amazon_logistic_regression_model) %>%
+#   fit(data = amazon_train)
 
+# Penalized linear regression model -------------------------------------
+amazon_penalized_logistic_model <- logistic_reg(mixture = tune(),
+                                                penalty = tune()) %>%
+  set_engine("glmnet")
+
+amazon_preliminary_workflow <- workflow() %>%
+  add_recipe(amazon_cleanup_recipe) %>%
+  add_model(amazon_penalized_logistic_model)
+
+# Cross-validation ------------------------------------------------------
+# grid of tuning parameters
+tuning_grid <- grid_regular(penalty,
+                            mixture,
+                            levels = 3)
+
+# grid 
+folds <- vfold_cv(amazon_train,
+                  v = 3,
+                  repeats = 1)
 
 # Making final workflow -------------------------------------------------
 # making final workflow
-amazon_workflow <- workflow() %>%
-  add_recipe(amazon_cleanup_recipe) %>%
-  add_model(amazon_logistic_regression_model) %>%
-  fit(data = amazon_train)
+
 
 # Making Predictions ----------------------------------------------------
 amazon_predictions <- predict(amazon_workflow,
