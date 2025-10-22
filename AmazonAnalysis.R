@@ -1,5 +1,6 @@
 # Setup -----------------------------------------------------------------
 # clearing everything
+# 
 rm(list = ls())
 
 # loading in libraries
@@ -8,8 +9,20 @@ library(tidymodels)
 library(embed)
 library(lme4)
 library(vroom)
+library(ranger)
+library(kknn)
 # library(patchwork)
 # library(janitor)
+# 1536208
+# 1536213
+
+
+# # Progress handler ------------------------------------------------------
+# library(progressr)
+# library(purrr)
+# handlers(global = T)
+# handlers("progress")
+
 
 # Reading In Data -------------------------------------------------------
 # 1050 columns
@@ -73,19 +86,44 @@ amazon_cleanup_recipe <- recipe(ACTION ~ .,
 #   add_model(amazon_logistic_regression_model) %>%
 #   fit(data = amazon_train)
 
-# Penalized linear regression model -------------------------------------
-amazon_penalized_logistic_model <- logistic_reg(mixture = tune(),
-                                                penalty = tune()) %>%
-  set_engine("glmnet")
+# # Penalized linear regression model -------------------------------------
+# amazon_penalized_logistic_model <- logistic_reg(mixture = tune(),
+#                                                 penalty = tune()) %>%
+#   set_engine("glmnet")
+# 
+# amazon_preliminary_workflow <- workflow() %>%
+#   add_recipe(amazon_cleanup_recipe) %>%
+#   add_model(amazon_penalized_logistic_model)
+
+# # Random Forests Model --------------------------------------------------
+# 
+# amazon_random_forest_model <- rand_forest(mtry = tune(),
+#                                           min_n = tune(),
+#                                           trees = 500) %>%
+#   set_engine("ranger") %>%
+#   set_mode("classification")
+# 
+# amazon_preliminary_workflow <- workflow() %>%
+#   add_recipe(amazon_cleanup_recipe) %>%
+#   add_model(amazon_random_forest_model)
+
+# K-Nearest Neighbors Model ---------------------------------------------
+
+amazon_knn_model <- nearest_neighbor(neighbors = tune()) %>%
+  set_engine("kknn") %>%
+  set_mode("classification")
 
 amazon_preliminary_workflow <- workflow() %>%
   add_recipe(amazon_cleanup_recipe) %>%
-  add_model(amazon_penalized_logistic_model)
+  add_model(amazon_knn_model)
 
 # Cross-validation ------------------------------------------------------
 # grid of tuning parameters
-tuning_grid <- grid_regular(penalty(),
-                            mixture(),
+tuning_grid <- grid_regular(neighbors(),
+                            #mtry(range = c(1, dim(amazon_train)[2] - 1)),
+                            #min_n(),
+                            # penalty(),
+                            # mixture(),
                             levels = 3)
 
 # splitting data into folds
@@ -93,11 +131,28 @@ folds <- vfold_cv(amazon_train,
                   v = 3,
                   repeats = 1)
 
-# cross-validation
+
+# Without progress handler
 cv_results <- amazon_preliminary_workflow %>%
   tune_grid(resamples = folds,
             grid = tuning_grid,
             metrics = metric_set(roc_auc))
+
+# # cross-validation with progress handler
+# with_progress({
+#
+#   p <- progressor(steps = length(folds$splits))
+#
+#   cv_results <- amazon_preliminary_workflow %>%
+#     tune_grid(resamples = folds,
+#               grid = tuning_grid,
+#               metrics = metric_set(roc_auc),
+#               control = control_grid(
+#                 extract = function(x) {
+#                   p(message = "Fold complete")
+#                 }
+#               ))
+# })
 
 # pulling off best tuning parameter values
 best_tuning_parameters <- cv_results %>%
@@ -123,5 +178,5 @@ amazon_predictions_formatted <- amazon_predictions %>%
 # Writing submission file -----------------------------------------------
 
 vroom_write(x = amazon_predictions_formatted,
-      file = "C:/Users/matth/OneDrive/Documents/GitHub/AmazonEmployeeAccess/preds.csv",
+      file = "./preds.csv",
       delim = ",")
