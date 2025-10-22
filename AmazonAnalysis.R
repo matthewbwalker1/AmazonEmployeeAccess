@@ -1,20 +1,21 @@
 # Setup -----------------------------------------------------------------
 # clearing everything
-# 
+# 1334711
 rm(list = ls())
 
 # loading in libraries
 library(tidyverse)
+library(discrim)
+library(naivebayes)
 library(tidymodels)
 library(embed)
 library(lme4)
 library(vroom)
 library(ranger)
-library(kknn)
+# library(kknn)
 # library(patchwork)
 # library(janitor)
-# 1536208
-# 1536213
+
 
 
 # # Progress handler ------------------------------------------------------
@@ -107,19 +108,33 @@ amazon_cleanup_recipe <- recipe(ACTION ~ .,
 #   add_recipe(amazon_cleanup_recipe) %>%
 #   add_model(amazon_random_forest_model)
 
-# K-Nearest Neighbors Model ---------------------------------------------
+# # K-Nearest Neighbors Model ---------------------------------------------
+# 
+# amazon_knn_model <- nearest_neighbor(neighbors = tune()) %>%
+#   set_engine("kknn") %>%
+#   set_mode("classification")
+# 
+# amazon_preliminary_workflow <- workflow() %>%
+#   add_recipe(amazon_cleanup_recipe) %>%
+#   add_model(amazon_knn_model)
 
-amazon_knn_model <- nearest_neighbor(neighbors = tune()) %>%
-  set_engine("kknn") %>%
-  set_mode("classification")
+# Naive Bayes Model -----------------------------------------------------
+
+amazon_naive_bayes_model <- naive_Bayes(Laplace = tune(),
+                                        smoothness = tune()) %>%
+  set_mode("classification") %>%
+  set_engine("naivebayes")
+
 
 amazon_preliminary_workflow <- workflow() %>%
   add_recipe(amazon_cleanup_recipe) %>%
-  add_model(amazon_knn_model)
+  add_model(amazon_naive_bayes_model)
 
 # Cross-validation ------------------------------------------------------
 # grid of tuning parameters
-tuning_grid <- grid_regular(neighbors(),
+tuning_grid <- grid_regular(Laplace(range = c(0, 10)),
+                            smoothness(range = c(0.1, 3.1)),
+                            # neighbors(),
                             #mtry(range = c(1, dim(amazon_train)[2] - 1)),
                             #min_n(),
                             # penalty(),
