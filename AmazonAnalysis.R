@@ -1,6 +1,6 @@
 # Setup -----------------------------------------------------------------
 # clearing everything
-# 1334711
+# 3621779
 rm(list = ls())
 
 # loading in libraries
@@ -12,6 +12,8 @@ library(embed)
 library(lme4)
 library(vroom)
 library(ranger)
+# library(keras)
+# library(tensorflow)
 # library(kknn)
 # library(patchwork)
 # library(janitor)
@@ -37,8 +39,11 @@ amazon_cleanup_recipe <- recipe(ACTION ~ .,
                                 data = amazon_train) %>%
   step_mutate_at(all_numeric_predictors(), fn = factor) %>%
   step_other(all_factor_predictors(), threshold = 0.001) %>%
-  step_lencode_mixed(all_factor_predictors(), outcome = vars(ACTION)) %>%
-  step_normalize(all_numeric_predictors())
+  # step_lencode_mixed(all_factor_predictors(), outcome = vars(ACTION)) %>%
+  # step_range(all_numeric_predictors(), min = 0, max = 1)
+  step_dummy(all_factor_predictors()) %>%
+  step_normalize(all_numeric_predictors()) %>%
+  step_pca(all_predictors(), threshold = 0.8)
 
 # # This code is used to ensure that the above recipe worked as intended.
 # amazon_train_clean <- bake(prep(amazon_cleanup_recipe),
@@ -87,14 +92,14 @@ amazon_cleanup_recipe <- recipe(ACTION ~ .,
 #   add_model(amazon_logistic_regression_model) %>%
 #   fit(data = amazon_train)
 
-# # Penalized linear regression model -------------------------------------
-# amazon_penalized_logistic_model <- logistic_reg(mixture = tune(),
-#                                                 penalty = tune()) %>%
-#   set_engine("glmnet")
-# 
-# amazon_preliminary_workflow <- workflow() %>%
-#   add_recipe(amazon_cleanup_recipe) %>%
-#   add_model(amazon_penalized_logistic_model)
+# Penalized logistic regression model -------------------------------------
+amazon_penalized_logistic_model <- logistic_reg(mixture = tune(),
+                                                penalty = tune()) %>%
+  set_engine("glmnet")
+
+amazon_preliminary_workflow <- workflow() %>%
+  add_recipe(amazon_cleanup_recipe) %>%
+  add_model(amazon_penalized_logistic_model)
 
 # # Random Forests Model --------------------------------------------------
 # 
@@ -118,27 +123,39 @@ amazon_cleanup_recipe <- recipe(ACTION ~ .,
 #   add_recipe(amazon_cleanup_recipe) %>%
 #   add_model(amazon_knn_model)
 
-# Naive Bayes Model -----------------------------------------------------
+# # Naive Bayes Model -----------------------------------------------------
+# 
+# amazon_naive_bayes_model <- naive_Bayes(Laplace = tune(),
+#                                         smoothness = tune()) %>%
+#   set_mode("classification") %>%
+#   set_engine("naivebayes")
+# 
+# 
+# amazon_preliminary_workflow <- workflow() %>%
+#   add_recipe(amazon_cleanup_recipe) %>%
+#   add_model(amazon_naive_bayes_model)
 
-amazon_naive_bayes_model <- naive_Bayes(Laplace = tune(),
-                                        smoothness = tune()) %>%
-  set_mode("classification") %>%
-  set_engine("naivebayes")
-
-
-amazon_preliminary_workflow <- workflow() %>%
-  add_recipe(amazon_cleanup_recipe) %>%
-  add_model(amazon_naive_bayes_model)
+# # ANN Model -------------------------------------------------------------
+# 
+# amazon_ann_model <- mlp(hidden_units = tune(),
+#                         epochs = 50) %>%
+#   set_engine("keras") %>%
+#   set_mode("classification")
+# 
+# amazon_preliminary_workflow <- workflow() %>%
+#   add_recipe(amazon_cleanup_recipe) %>%
+#   add_model(amazon_ann_model)
 
 # Cross-validation ------------------------------------------------------
 # grid of tuning parameters
-tuning_grid <- grid_regular(Laplace(range = c(0, 10)),
-                            smoothness(range = c(0.1, 3.1)),
+tuning_grid <- grid_regular(#hidden_units(range = c(5, 55)),
+                            # Laplace(range = c(0, 10)),
+                            # smoothness(range = c(0.1, 3.1)),
                             # neighbors(),
-                            #mtry(range = c(1, dim(amazon_train)[2] - 1)),
-                            #min_n(),
-                            # penalty(),
-                            # mixture(),
+                            # mtry(range = c(10, 100)),#dim(amazon_train)[2] - 1)),
+                            # min_n(),
+                            penalty(),
+                            mixture(),
                             levels = 3)
 
 # splitting data into folds
@@ -169,6 +186,12 @@ cv_results <- amazon_preliminary_workflow %>%
 #               ))
 # })
 
+# cv_results %>%
+#   collect_metrics() %>%
+#   filter(.metric == "roc_auc") %>%
+#   ggplot(aes(x = hidden_units, y = mean)) +
+#   geom_line()
+
 # pulling off best tuning parameter values
 best_tuning_parameters <- cv_results %>%
   select_best(metric = "roc_auc")
@@ -195,3 +218,4 @@ amazon_predictions_formatted <- amazon_predictions %>%
 vroom_write(x = amazon_predictions_formatted,
       file = "./preds.csv",
       delim = ",")
+
