@@ -1,12 +1,14 @@
 # Setup -----------------------------------------------------------------
 # clearing everything
-# 404486
+# 533985
 rm(list = ls())
 
 # loading in libraries
 library(tidyverse)
 library(discrim)
 library(naivebayes)
+library(bonsai)
+library(dbarts)
 library(tidymodels)
 library(embed)
 library(lme4)
@@ -103,15 +105,15 @@ amazon_cleanup_recipe <- recipe(ACTION ~ .,
 
 # Random Forests Model --------------------------------------------------
 
-amazon_random_forest_model <- rand_forest(mtry = tune(),
-                                          min_n = tune(),
-                                          trees = tune()) %>%
-  set_engine("ranger") %>%
-  set_mode("classification")
-
-amazon_preliminary_workflow <- workflow() %>%
-  add_recipe(amazon_cleanup_recipe) %>%
-  add_model(amazon_random_forest_model)
+# amazon_random_forest_model <- rand_forest(mtry = tune(),
+#                                           min_n = tune(),
+#                                           trees = tune()) %>%
+#   set_engine("ranger") %>%
+#   set_mode("classification")
+# 
+# amazon_preliminary_workflow <- workflow() %>%
+#   add_recipe(amazon_cleanup_recipe) %>%
+#   add_model(amazon_random_forest_model)
 
 # # K-Nearest Neighbors Model ---------------------------------------------
 # 
@@ -158,71 +160,82 @@ amazon_preliminary_workflow <- workflow() %>%
 #   add_recipe(amazon_cleanup_recipe) %>%
 #   add_model(amazon_svm_radial_model)
 
-# Cross-validation ------------------------------------------------------
-# grid of tuning parameters
-tuning_grid <- grid_space_filling(
-                                  # cost(),
-                                  # rbf_sigma(),
-                                  # degree(),
-                                  #hidden_units(range = c(5, 55)),
-                                  # Laplace(range = c(0, 10)),
-                                  # smoothness(range = c(0.1, 3.1)),
-                                  # neighbors(),
-                                  mtry(range = c(1, dim(amazon_train)[2] - 1)),
-                                  min_n(),
-                                  trees(),
-                                  # penalty(),
-                                  # mixture(),
-                                  # levels = 3,
-                                  size = 30)
+# Making a bart-boosted tree model --------------------------------------
 
-# splitting data into folds
-folds <- vfold_cv(amazon_train,
-                  v = 3,
-                  repeats = 1)
+amazon_trees_bart <- parsnip::bart(trees = 1000) %>%
+  set_engine("dbarts") %>%
+  set_mode("classification")
 
+# preliminary workflow
+amazon_preliminary_workflow <- workflow() %>%
+  add_recipe(amazon_cleanup_recipe) %>%
+  add_model(amazon_trees_bart)
 
-# Without progress handler
-cv_results <- amazon_preliminary_workflow %>%
-  tune_grid(resamples = folds,
-            grid = tuning_grid,
-            metrics = metric_set(roc_auc))
-
-# # # cross-validation with progress handler
-# # with_progress({
+# # Cross-validation ------------------------------------------------------
+# # grid of tuning parameters
+# tuning_grid <- grid_space_filling(
+#                                   # cost(),
+#                                   # rbf_sigma(),
+#                                   # degree(),
+#                                   #hidden_units(range = c(5, 55)),
+#                                   # Laplace(range = c(0, 10)),
+#                                   # smoothness(range = c(0.1, 3.1)),
+#                                   # neighbors(),
+#                                   # mtry(range = c(1, dim(amazon_train)[2] - 1)),
+#                                   # min_n(),
+#                                   trees(),
+#                                   # penalty(),
+#                                   # mixture(),
+#                                   # levels = 3,
+#                                   size = 5)
+# 
+# # splitting data into folds
+# folds <- vfold_cv(amazon_train,
+#                   v = 3,
+#                   repeats = 1)
+# 
+# 
+# # Without progress handler
+# cv_results <- amazon_preliminary_workflow %>%
+#   tune_grid(resamples = folds,
+#             grid = tuning_grid,
+#             metrics = metric_set(roc_auc))
+# 
+# # # # cross-validation with progress handler
+# # # with_progress({
+# # #
+# # #   p <- progressor(steps = length(folds$splits))
+# # #
+# # #   cv_results <- amazon_preliminary_workflow %>%
+# # #     tune_grid(resamples = folds,
+# # #               grid = tuning_grid,
+# # #               metrics = metric_set(roc_auc),
+# # #               control = control_grid(
+# # #                 extract = function(x) {
+# # #                   p(message = "Fold complete")
+# # #                 }
+# # #               ))
+# # # })
 # #
-# #   p <- progressor(steps = length(folds$splits))
-# #
-# #   cv_results <- amazon_preliminary_workflow %>%
-# #     tune_grid(resamples = folds,
-# #               grid = tuning_grid,
-# #               metrics = metric_set(roc_auc),
-# #               control = control_grid(
-# #                 extract = function(x) {
-# #                   p(message = "Fold complete")
-# #                 }
-# #               ))
-# # })
-#
-# # cv_results %>%
-# #   collect_metrics() %>%
-# #   filter(.metric == "roc_auc") %>%
-# #   ggplot(aes(x = hidden_units, y = mean)) +
-# #   geom_line()
-
-# pulling off best tuning parameter values
-best_tuning_parameters <- cv_results %>%
-  select_best(metric = "roc_auc")
-
-best_tuning_parameters
-
-# # using saved tuning parameters
-# best_tuning_parameters <- vroom("naiveBayesBestTune.csv")
+# # # cv_results %>%
+# # #   collect_metrics() %>%
+# # #   filter(.metric == "roc_auc") %>%
+# # #   ggplot(aes(x = hidden_units, y = mean)) +
+# # #   geom_line()
+# 
+# # pulling off best tuning parameter values
+# best_tuning_parameters <- cv_results %>%
+#   select_best(metric = "roc_auc")
+# 
+# best_tuning_parameters
+# 
+# # # using saved tuning parameters
+# # best_tuning_parameters <- vroom("naiveBayesBestTune.csv")
 
 # Making final workflow -------------------------------------------------
 # making final workflow
 amazon_workflow <- amazon_preliminary_workflow %>%
-  finalize_workflow(best_tuning_parameters) %>%
+  # finalize_workflow(best_tuning_parameters) %>%
   fit(data = amazon_train)
 
 # Making Predictions ----------------------------------------------------
@@ -242,6 +255,6 @@ vroom_write(x = amazon_predictions_formatted,
             file = "./preds2.csv",
             delim = ",")
 
-vroom_write(x = best_tuning_parameters,
-            file = "./cv_random_forests.csv",
-            delim = ",")
+# vroom_write(x = best_tuning_parameters,
+#             file = "./cv_bart_forests.csv",
+#             delim = ",")
